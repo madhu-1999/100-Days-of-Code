@@ -1,47 +1,44 @@
-from datetime import datetime
-import requests
 from bs4 import BeautifulSoup
+import requests
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
-BASE_URL = 'https://www.billboard.com/charts/hot-100/'
-CLIENT_ID = '86b15a95c35a4dcc9b9ff02568f07f96'
-CLIENT_SECRET='52a6455f5b5e4e21a2e6db4f510e26d3'
-def validate_date(date_text):
+# Scraping Billboard 100
+date = input("Which year do you want to travel to? Type the date in this format YYYY-MM-DD: ")
+response = requests.get("https://www.billboard.com/charts/hot-100/" + date)
+soup = BeautifulSoup(response.text, 'html.parser')
+song_names_spans = soup.find_all("span", class_="chart-element__information__song")
+song_names = [song.getText() for song in song_names_spans]
+
+#Spotify Authentication
+sp = spotipy.Spotify(
+    auth_manager=SpotifyOAuth(
+        scope="playlist-modify-private",
+        redirect_uri="http://example.com",
+        client_id='YOUR CLIENT ID',
+        client_secret='YOUR CLIENT SECRET',
+        show_dialog=True,
+        cache_path="token.txt"
+    )
+)
+user_id = sp.current_user()["id"]
+print(user_id)
+
+#Searching Spotify for songs by title
+song_uris = []
+year = date.split("-")[0]
+for song in song_names:
+    result = sp.search(q=f"track:{song} year:{year}", type="track")
+    print(result)
     try:
-        if date_text != datetime.strptime(date_text, "%Y-%m-%d").strftime('%Y-%m-%d'):
-            raise ValueError
-        return True
-    except ValueError:
-        return False
+        uri = result["tracks"]["items"][0]["uri"]
+        song_uris.append(uri)
+    except IndexError:
+        print(f"{song} doesn't exist in Spotify. Skipped.")
 
-def __main__():
-    date  = input("Enter date in format YYYY-MM-DD: ")
-    if validate_date(date) :
-        response = requests.get(BASE_URL+date)
-        soup = BeautifulSoup(response.content, "html.parser")
-        chart_items = soup.find_all('li',class_='o-chart-results-list__item')
-        songs = [title.text.strip() for item in chart_items for title in item.find_all('h3',id='title-of-a-story')]
-        sp = spotipy.Spotify(
-            auth_manager=SpotifyOAuth(
-                scope="playlist-modify-private",
-                redirect_uri="http://example.com",
-                client_id=CLIENT_ID,
-                client_secret=CLIENT_SECRET,
-                show_dialog=True,
-                cache_path="token.txt"
-            )
-        )
-        user_id = sp.current_user()["id"]
-        song_uris = []
-        year = date.split("-")[0]
-        for song in songs:
-            result = sp.search(q=f"track:{song} year:{year}", type="track")
-            print(result)
-            try:
-                uri = result["tracks"]["items"][0]["uri"]
-                song_uris.append(uri)
-            except IndexError:
-                print(f"{song} doesn't exist in Spotify. Skipped.")
+#Creating a new private playlist in Spotify
+playlist = sp.user_playlist_create(user=user_id, name=f"{date} Billboard 100", public=False)
+print(playlist)
 
-__main__()
+#Adding songs found into the new playlist
+sp.user_playlist_add_tracks(user=user_id, playlist_id=playlist["id"], tracks=song_uris)
